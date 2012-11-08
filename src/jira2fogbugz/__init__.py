@@ -159,7 +159,11 @@ def run():
     parser.add_argument('default_assignee', help="The email of the default assignee")
     # TODO: dynamically create projects based on JIRA data
     parser.add_argument('project', help="Which FogBugz project to put cases in")
-    parser.add_argument('-v', '--verbose', action="store_true", default=False, help="Get more verbose output")
+    parser.add_argument('-v', '--verbose',
+                        dest="verbose",
+                        action="store_true",
+                        default=False,
+                        help="Get more verbose output")
     args = parser.parse_args()
 
     try:
@@ -169,19 +173,23 @@ def run():
                                     args.jira_password))
         except JIRAError, e:
             if e.status_code == 403:
-                parser.error('Cannot connect to JIRA. Check username/password')
+                sys.stderr.write('Cannot connect to JIRA. Check username/password\n')
+                sys.exit(1)
             else:
                 msg = "Cannot connect to JIRA  (return code={0})".format(e.status_code)
-                if args.v:
+                if args.verbose:
                     msg += "\n{0}".format('Response from JIRA:\n{0}'.format(e.text))
-                parser.error(msg)
+                sys.stderr.write(msg+'\n')
+                sys.exit(1)
         try:
             fb = FogBugz(args.fogbugz_url)
             fb.logon(args.fogbugz_username, args.fogbugz_password)
         except FogBugzConnectionError:
-            parser.error('Cannot connect to FogBugz')
+            sys.stderr.write('Cannot connect to FogBugz\n')
+            sys.exit(1)
         except FobBugzLogonError:
-            parser.error('Cannot login to FogBugz. Check username/password')
+            sys.stderr.write('Cannot login to FogBugz. Check username/password')
+            sys.exit(1)
 
         # initialize an email to fogbugz User ID mapping
         email_map = {}
@@ -195,6 +203,8 @@ def run():
 
         for issue in get_jira_issues(jira, query):
             create_issue(fb, issue, project_name, email_map, default_assignee)
+    except SystemExit:
+        raise
     except:
         sys.stderr.write("Unknown error occurred\n")
         traceback.print_exc(sys.stderr)
