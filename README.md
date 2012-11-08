@@ -1,4 +1,4 @@
-### JIRA to FogBugz importer
+# JIRA to FogBugz importer
 
 **code is very unstable**
 
@@ -8,3 +8,15 @@ At the moment it is quite unstable, as I customized the script to work for my ne
 There is a lot of things that I would need to add, to make it a complete JIRA to FogBugz importer.
 
 But if anyone is interested feel free and fork away. 
+
+### Install instructions
+
+```shell
+% easy_install virtualenv
+% virtualenv testenv
+% cd testenv
+% source bin/activate
+% easy_install jira2fogbugz
+% bin/jira2fogbugz --help
+```
+
