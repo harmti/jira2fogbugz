@@ -178,7 +178,7 @@ def run():
             parser.error("Default assignee {0} does not exist in FogBugz".format(args.default_assignee))
 
         for issue in get_jira_issues(jira, query):
-            create_issue(fb, issue, project_name, email_map, default_assignee))
+            create_issue(fb, issue, project_name, email_map, default_assignee)
     except:
         sys.stderr.write("Unknown error occurred\n")
         traceback.print_exc(sys.stderr)
