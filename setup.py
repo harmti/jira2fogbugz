@@ -21,4 +21,5 @@ setup(name='jira2fogbugz',
           ],
       },
       license=license,
+      zip_safe=False,
      )

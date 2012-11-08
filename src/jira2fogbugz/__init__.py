@@ -4,7 +4,9 @@ import sys
 import time
 import traceback
 from jira.client import JIRA
+from jira.exceptions import JIRAError
 from fogbugz import FogBugz
+from fogbugz import FogBugzLogonError, FogBugzConnectionError
 
 RECENTLY_ADDED_CASES = {}
 
@@ -157,15 +159,29 @@ def run():
     parser.add_argument('default_assignee', help="The email of the default assignee")
     # TODO: dynamically create projects based on JIRA data
     parser.add_argument('project', help="Which FogBugz project to put cases in")
+    parser.add_argument('-v', '--verbose', action="store_true", default=False, help="Get more verbose output")
     args = parser.parse_args()
 
     try:
-        jira = JIRA(options={'server': args.jira_url},
-                    basic_auth=(args.jira_username,
-                                args.jira_password))
-
-        fb = FogBugz(args.fogbugz_url)
-        fb.logon(args.fogbugz_username, args.fogbugz_password)
+        try:
+            jira = JIRA(options={'server': args.jira_url},
+                        basic_auth=(args.jira_username,
+                                    args.jira_password))
+        except JIRAError, e:
+            if e.status_code == 403:
+                parser.error('Cannot connect to JIRA. Check username/password')
+            else:
+                msg = "Cannot connect to JIRA  (return code={0})".format(e.status_code)
+                if args.v:
+                    msg += "\n{0}".format('Response from JIRA:\n{0}'.format(e.text))
+                parser.error(msg)
+        try:
+            fb = FogBugz(args.fogbugz_url)
+            fb.logon(args.fogbugz_username, args.fogbugz_password)
+        except FogBugzConnectionError:
+            parser.error('Cannot connect to FogBugz')
+        except FobBugzLogonError:
+            parser.error('Cannot login to FogBugz. Check username/password')
 
         # initialize an email to fogbugz User ID mapping
         email_map = {}
@@ -182,8 +198,8 @@ def run():
     except:
         sys.stderr.write("Unknown error occurred\n")
         traceback.print_exc(sys.stderr)
-        return 1
-    return 0
+        sys.exit(1)
+    return sys.exit(0)
 
 if __name__ == '__main__':
-    sys.exit(run())
+    run()
