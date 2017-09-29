@@ -21,8 +21,9 @@ FOGBUGZ_FIELDS = ('ixBug,ixPersonAssignedTo,ixPersonEditedBy,'
 
 def fb_create_issue(fb, jira, jis, project, email_map, default_assignee):
     global RECENTLY_ADDED_CASES
-    print("case data", jis.fields)
+    print("fb_create_issue: {}".format(jis.key))
     data = {}
+    comments = []
     attachments = {}
     parent_issue = None
 
@@ -36,7 +37,7 @@ def fb_create_issue(fb, jira, jis, project, email_map, default_assignee):
     data['sTitle'] = jis.fields.summary if jis.fields.summary else 'No title'
     description = ''
     if jis.fields.description:
-        description = jis.fields.description
+        description = jis.fields.description + "(imported jira case " + jis.key +")"
     #data['sEvent'] = description
     data['plugin_customfields_at_fogcreek_com_userxstoryxtextx816'] = description
     data['sProject'] = project
@@ -82,25 +83,28 @@ def fb_create_issue(fb, jira, jis, project, email_map, default_assignee):
             attachments[jira_attachment.filename] = io.open(attachment_path, "rb")
 
     if getattr(jis.fields, 'comment', None):
-        for comment in jis.fields.comment.comments:
-            print("comment:{}".format(comment))
+        for comment_id in jis.fields.comment.comments:
+            comments.append(jira.comment(jis.key, comment_id))
+            #print("comment:{}".format(comment.body))
 
     if getattr(jis.fields, 'parent', None):
         parent = jis.fields.parent
         tmp = jira.search_issues('key={0}'.format(parent.key))
         if len(tmp) != 1:
             raise Exception("Was expecting to find 1 result for key={0}. Got {1}".format(parent.key, len(tmp)))
+        print("Creating fb case for the parent (jis.fields.parent) case {}".format(tmp[0].key))
         parent_issue = fb_create_issue(fb, jira, tmp[0], project, email_map, default_assignee)
         data['ixBugParent'] = parent_issue
 
     if jis.fields.issuelinks:
         for link in jis.fields.issuelinks:
-            parent = getattr(link, 'outwardIssue', None)
-            child = getattr(link, 'inwardIssue', None)
+            parent = getattr(link, 'inwardIssue', None)
+            child = getattr(link, 'outwardIssue', None)
             if parent:
                 tmp = jira.search_issues('key={0}'.format(parent.key))
                 if len(tmp) != 1:
                     raise Exception("Was expecting to find 1 result for key={0}. Got {1}".format(parent.key, len(tmp)))
+                print("Creating fb case for the parent (inwardIssue) case {}".format(tmp[0].key))
                 parent_issue = fb_create_issue(fb, jira, tmp[0],
                                                project,
                                                email_map,
@@ -167,15 +171,25 @@ def fb_create_issue(fb, jira, jis, project, email_map, default_assignee):
 
     print("Would call function:{} with data:{}".format(func, data))
     fbcase=func(**data, Files=attachments)
-    print("return:", fbcase)
+    print("FB case created:", fbcase)
 
     for name,f in attachments.items():
         f.close()
         os.remove(f.name)
 
-    RECENTLY_ADDED_CASES[jis.key] = fbcase.case.ixBug
-    #exit(1)
-    return fbcase.case.ixBug
+    for comment in comments:
+        fb.edit(ixBug=fbcase.case['ixBug'],
+                sEvent="Edited by {} {} \n\n{}".format(comment.updateAuthor.name, comment.updated, comment.body))
+
+    # add a comment about the import
+    fb.edit(ixBug=fbcase.case['ixBug'], sEvent="Imported from jira case {}".format(jis.key))
+
+    # resolve the issue if it is already done
+    if jis.fields.resolution:
+        fb.resolve(ixBug=fbcase.case['ixBug'])
+
+    RECENTLY_ADDED_CASES[jis.key] = int(fbcase.case['ixBug'])
+    return int(fbcase.case['ixBug'])
 
 def get_jira_issues(server, query):
     chunk_size = 100
