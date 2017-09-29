@@ -27,6 +27,12 @@ def fb_create_issue(fb, jira, jis, project, email_map, default_assignee):
     attachments = {}
     parent_issue = None
 
+    if jis.key in RECENTLY_ADDED_CASES:
+        fb_case_id = RECENTLY_ADDED_CASES[jis.key]
+        # this case has been added already, so just return the fogbugz id
+        print("Jira case {0} already added as Fogbugz case ID {1}".format(jis.key, fb_case_id))
+        return fb_case_id
+
     # used for storing attachments
     tempdir = tempfile.mkdtemp()
 
@@ -37,7 +43,7 @@ def fb_create_issue(fb, jira, jis, project, email_map, default_assignee):
     data['sTitle'] = jis.fields.summary if jis.fields.summary else 'No title'
     description = ''
     if jis.fields.description:
-        description = jis.fields.description + "(imported jira case " + jis.key +")"
+        description = jis.fields.description + "\n\n(imported from jira case " + jis.key +")"
     #data['sEvent'] = description
     data['plugin_customfields_at_fogcreek_com_userxstoryxtextx816'] = description
     data['sProject'] = project
@@ -111,67 +117,17 @@ def fb_create_issue(fb, jira, jis, project, email_map, default_assignee):
                                                default_assignee)
                 data['ixBugParent'] = parent_issue
 
-    func = fb.new
-    tries = 0
-    count = 0
-    # TODO: create custom field with JIRA key and JIRA URL then search for them
-    #       before you attempt to create a new case
-    if jis.key in RECENTLY_ADDED_CASES:
-        resp = fb.search(q=RECENTLY_ADDED_CASES[jis.key],
-                         cols=FOGBUGZ_FIELDS)
-        count = int(resp.cases['count'])
-        if count != 1:
-            raise Exception("We should see case {0}".format(RECENTLY_ADDED_CASES[jis.key]))
-
-    if count == 1:
-        case = resp.cases.case
-        data.pop('sEvent')
-        sparent_issue = parent_issue if parent_issue else 'n/a'
-        print("{0} exists as case ID {1: >3} ... parent case {2: >3} Type={3}".format(jis.key, case.ixbug.string, sparent_issue, jis.fields.issuetype.name))
-        if int(case.ixpersonassignedto.string) == data['ixPersonAssignedTo']:
-            data.pop('ixPersonAssignedTo')
-        curr = case.stitle.string
-        if curr[-3:] == '...':
-            curr = curr[:-3]
-        if curr in data['sTitle']:
-            data.pop('sTitle')
-        if case.sproject.string == data['sProject']:
-            data.pop('sProject')
-        if data.get('ixBugParent', False):
-            if int(case.ixbugparent.string) == data['ixBugParent']:
-                data.pop('ixBugParent')
-        if case.scategory.string == data['sCategory']:
-            data.pop('sCategory')
-        if int(case.hrscurrest.string) == data['hrsCurrEst']:
-            data.pop('hrsCurrEst')
-        tags = [tag.string for tag in resp.cases.case.tags.childGenerator()]
-        if data.has_key('sTags'):
-            new_tags = []
-            split_tags = data['sTags'].split(',')
-            for t in split_tags:
-                if t not in tags:
-                    new_tags.append(t)
-            if new_tags:
-                data['sTags'] = ','.join(new_tags)
-        data.pop('dt')
-        if not data:
-            return int(case['ixbug'])
-        data['ixBug'] = int(case['ixbug'])
-        func = fb.edit
-        print("Calling edit with {0}".format(data))
+    sparent_issue = parent_issue if parent_issue else 'n/a'
+    print("{0} doesn't exist yet ... parent case {1: >3} Type={2}".format(jis.key, sparent_issue, jis.fields.issuetype.name))
+    reporter = getattr(jis.fields, 'reporter', None)
+    if reporter:
+        data['ixPersonEditedBy'] = email_map[reporter.emailAddress.lower()]
     else:
-        sparent_issue = parent_issue if parent_issue else 'n/a'
-        print("{0} doesn't exist yet ... parent case {1: >3} Type={2}".format(jis.key, sparent_issue, jis.fields.issuetype.name))
-        reporter = getattr(jis.fields, 'reporter', None)
-        if reporter:
-            data['ixPersonEditedBy'] = email_map[reporter.emailAddress.lower()]
-        else:
-            data['ixPersonEditedBy'] = default_assignee
-        print("Creating new")
+        data['ixPersonEditedBy'] = default_assignee
 
-    print("Would call function:{} with data:{}".format(func, data))
-    fbcase=func(**data, Files=attachments)
-    print("FB case created:", fbcase)
+    print("Create FB case using data:{}".format(data))
+    fbcase=fb.new(**data, Files=attachments)
+    print("FB case created {}".format(fbcase))
 
     for name,f in attachments.items():
         f.close()
