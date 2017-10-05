@@ -48,8 +48,10 @@ def fb_create_issue(fb, jira, jis, project, email_map, default_assignee):
     description = ''
     if jis.fields.description:
         description = jis.fields.description + "\n\n(imported from jira case " + jis.key +")"
-    #data['sEvent'] = description
+    # custom description field (modify/comment out if you  don't have this)
     data['plugin_customfields_at_fogcreek_com_userxstoryxtextx816'] = description
+    # and add the descripion as a comment (sEvent).
+    #data['sEvent'] = description
     data['sProject'] = project
     # TODO: use pytz and convert timezone data properly
     data['dt'] = jis.fields.created.split('.')[0]+'Z'
