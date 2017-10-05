@@ -7,6 +7,7 @@ import time
 import traceback
 import string
 import tempfile
+import logging
 from jira.client import JIRA
 from jira.exceptions import JIRAError
 from fogbugz import FogBugz
@@ -18,10 +19,12 @@ FOGBUGZ_FIELDS = ('ixBug,ixPersonAssignedTo,ixPersonEditedBy,'
                   'sTitle,sLatestTextSummary,sProject,dtOpened,'
                   'sCategory,ixBugParent,hrsCurrEst,tags')
 
+logging.basicConfig(level=logging.INFO)
+
 
 def fb_create_issue(fb, jira, jis, project, email_map, default_assignee):
     global RECENTLY_ADDED_CASES
-    print("fb_create_issue: {}".format(jis.key))
+    global logging
     data = {}
     comments = []
     attachments = {}
@@ -30,9 +33,10 @@ def fb_create_issue(fb, jira, jis, project, email_map, default_assignee):
     if jis.key in RECENTLY_ADDED_CASES:
         fb_case_id = RECENTLY_ADDED_CASES[jis.key]
         # this case has been added already, so just return the fogbugz id
-        print("Jira case {0} already added as Fogbugz case ID {1}".format(jis.key, fb_case_id))
+        logging.info("Jira case {0} already added as Fogbugz case ID {1}".format(jis.key, fb_case_id))
         return fb_case_id
 
+    logging.info("Starting to import jira case {}".format(jis.key))
     # used for storing attachments
     tempdir = tempfile.mkdtemp()
 
@@ -91,14 +95,13 @@ def fb_create_issue(fb, jira, jis, project, email_map, default_assignee):
     if getattr(jis.fields, 'comment', None):
         for comment_id in jis.fields.comment.comments:
             comments.append(jira.comment(jis.key, comment_id))
-            #print("comment:{}".format(comment.body))
 
     if getattr(jis.fields, 'parent', None):
         parent = jis.fields.parent
         tmp = jira.search_issues('key={0}'.format(parent.key))
         if len(tmp) != 1:
             raise Exception("Was expecting to find 1 result for key={0}. Got {1}".format(parent.key, len(tmp)))
-        print("Creating fb case for the parent (jis.fields.parent) case {}".format(tmp[0].key))
+        logging.info("Creating fb case for the parent (jis.fields.parent) case {}".format(tmp[0].key))
         parent_issue = fb_create_issue(fb, jira, tmp[0], project, email_map, default_assignee)
         data['ixBugParent'] = parent_issue
 
@@ -110,7 +113,7 @@ def fb_create_issue(fb, jira, jis, project, email_map, default_assignee):
                 tmp = jira.search_issues('key={0}'.format(parent.key))
                 if len(tmp) != 1:
                     raise Exception("Was expecting to find 1 result for key={0}. Got {1}".format(parent.key, len(tmp)))
-                print("Creating fb case for the parent (inwardIssue) case {}".format(tmp[0].key))
+                logging.info("Creating fb case for the parent (inwardIssue) case {}".format(tmp[0].key))
                 parent_issue = fb_create_issue(fb, jira, tmp[0],
                                                project,
                                                email_map,
@@ -118,16 +121,15 @@ def fb_create_issue(fb, jira, jis, project, email_map, default_assignee):
                 data['ixBugParent'] = parent_issue
 
     sparent_issue = parent_issue if parent_issue else 'n/a'
-    print("{0} doesn't exist yet ... parent case {1: >3} Type={2}".format(jis.key, sparent_issue, jis.fields.issuetype.name))
     reporter = getattr(jis.fields, 'reporter', None)
     if reporter:
         data['ixPersonEditedBy'] = email_map[reporter.emailAddress.lower()]
     else:
         data['ixPersonEditedBy'] = default_assignee
 
-    print("Create FB case using data:{}".format(data))
+    logging.debug("Create FB case using data:{}".format(data))
     fbcase=fb.new(**data, Files=attachments)
-    print("FB case created {}".format(fbcase))
+    logging.info("Created FB case {}".format(fbcase.case['ixBug']))
 
     for name,f in attachments.items():
         f.close()
@@ -209,22 +211,19 @@ def run():
         email_map = {}
         resp = fb.listPeople(fIncludeActive=1, fIncludeNormal=1, fIncludeDeleted=1, fIncludeVirtual=1)
         for person in resp.people.childGenerator():
-            #print("person", person)
-            #print("person.ixperson", person.ixPerson.string)
+            logging.debug("Found Fogbugz user {}".format(person.ixPerson.string))
             email_map[person.sEmail.string.lower()] = int(person.ixPerson.string)
         try:
             default_assignee = email_map[args.default_assignee.lower()]
         except KeyError:
             parser.error("Default assignee {0} does not exist in FogBugz".format(args.default_assignee))
 
-        #print("email_map: {}".format(email_map))
         query = 'project = "{}"'.format(args.jira_project)
         if args.jira_query:
             query += "AND " + args.jira_query
-        print("query: '{}'".format(query))
+        logging.debug("Using Jira query: '{}'".format(query))
         issues = get_jira_issues(jira, query)
         for issue in issues:
-            print("issue", issue)
             fb_create_issue(fb, jira, issue, args.fogbugz_project, email_map, default_assignee)
     except SystemExit:
         raise
